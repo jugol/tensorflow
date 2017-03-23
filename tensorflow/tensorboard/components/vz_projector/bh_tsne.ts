@@ -89,7 +89,7 @@ export function dist2_3D(a: number[], b: number[]): number {
   return dX * dX + dY * dY + dZ * dZ;
 }
 
-function gaussRandom(rng: () => number): number {
+function gaussRandom(rng: () => number): number { //'() => {...}' === 'function() {...}' ex) () => number === function () {...return number;}
   if (return_v) {
     return_v = false;
     return v_val;
@@ -223,7 +223,25 @@ function nearest2P(
     }
   }
   return P;
+  ///n^2에 모든 것이 들어간다.
+  ///nearest만 계산하기는 하지만..ㅠㅠㅠ P 굳 퍄퍄....
 };
+
+
+//to use random number from choosed seed
+//랜덤 시드로 쓰려고 ㅠ
+let seed=7;
+function rand() : number{
+ 
+    seed = (seed * 9301 + 49297) % 233280;
+    var rnd =seed / 233280;
+ 
+    return rnd;
+}
+
+
+
+
 
 // helper function
 function sign(x: number) {
@@ -234,6 +252,7 @@ function computeForce_2d(
     force: number[], mult: number, pointA: number[], pointB: number[]) {
   force[0] += mult * (pointA[0] - pointB[0]);
   force[1] += mult * (pointA[1] - pointB[1]);
+  ///force라는 변수에 mult * (pointA-pointB)를 해서 넘겨준다.
 }
 
 function computeForce_3d(
@@ -276,7 +295,7 @@ export class TSNE {
     opt = opt || {dim: 2};
     this.perplexity = opt.perplexity || 30;
     this.epsilon = opt.epsilon || 10;
-    this.rng = opt.rng || Math.random;
+    this.rng = opt.rng || rand;//Math.random;
     this.dim = opt.dim;
     if (opt.dim === 2) {
       this.dist2 = dist2_2D;
@@ -293,6 +312,7 @@ export class TSNE {
   // matrix P from them.
   // D is assumed to be provided as an array of size N^2.
   initDataDist(nearest: {index: number, dist: number}[][]) {
+    seed = 7;
     let N = nearest.length;
     this.nearest = nearest;
     this.P = nearest2P(nearest, this.perplexity, 1E-4);
@@ -311,17 +331,21 @@ export class TSNE {
   }
 
   // return pointer to current solution
+  /// 현재의 solution을 return  한다. 
   getSolution() { return this.Y; }
 
   // perform a single step of optimization to improve the embedding
+  /// optimization을 한 스텝 돌린다. 
   step() {
     this.iter += 1;
     let N = this.N;
 
     let grad = this.costGrad(this.Y);  // evaluate gradient
-
+    ///여기에서 거리의 차이를 구한다 
     // perform gradient step
     let ymean = this.dim === 3 ? [0, 0, 0] : [0, 0];
+    ///grad : Y의 gradient가 계산된 결과.
+    let move = (this.iter /100 %2)&&(this.iter<250) ? 0 : 1
     for (let i = 0; i < N; ++i) {
       for (let d = 0; d < this.dim; ++d) {
         let gid = grad[i][d];
@@ -337,6 +361,7 @@ export class TSNE {
 
         // compute momentum step direction
         let momval = this.iter < 250 ? 0.5 : 0.8;
+        if(move==1) momval-=0.1;
         let newsid = momval * sid - this.epsilon * newgain * grad[i][d];
         this.ystep[i][d] = newsid;  // remember the step we took
 
@@ -354,7 +379,124 @@ export class TSNE {
         this.Y[i * this.dim + d] -= ymean[d] / N;
       }
     }
+
+    ///이 부분에서 가지고 놀면 좋을 것 같은데, 
+    if(move&&this.iter>=400&&this.iter<=10000)//&&this.iter%3==0
+    {
+      let points: number[][] = new Array(N);  // (x, y)[]
+      for (let i = 0; i < N; ++i) {
+        let iTimesD = i * this.dim;
+        let row = new Array(this.dim);
+        for (let d = 0; d < this.dim; ++d) {
+          row[d] = this.Y[iTimesD + d];
+        }
+        points[i] = row;
+      }
+      
+      let distAll=new Array(N);//:{index:number,dist:number}[]
+      //1차원 dictionary
+      
+      for(let i=0;i<N;i++){
+        let neighbors = this.nearest[i];//i의 이웃들
+        distAll[i]={index:i,dist:0};
+        let pointI = points[i];
+        for(let j=0;j<neighbors.length;j++){
+          let nei=neighbors[j].index;
+//       let pij = P[i * N + nei];
+          let pointJ = points[nei];
+          distAll[i].dist += this.dist2(pointI, pointJ);
+        }
+      }
+
+      distAll.sort((a:{index:number;dist:number},b:{index:number;dist:number})=>{
+        return a.dist-b.dist;//아마 이러면 오름차순이 될 것 같다.
+      });
+      //이 이후에는 랜덤하게 레이블을 뽑아야 하는데 이게 쉽지가 않다.
+      
+      ///여튼 pij는 high dim의 것이고 (P[i*N+j]) 아마...
+      ///points[i][j] (여기선 그런데 밖에선 Y[i*dim+j])가 i의 jdimension의 값인 듯 하다.
+      let exp_label_num = 10;
+      let idxx=Math.floor(Math.random()*(this.N/exp_label_num));//this.perplexity
+      ///저 값 : data size / 기대하는 label 수. 
+      let tnear=this.nearest[distAll[idxx].index];///이게 0이 아니라 아마 0~20? 사이의 랜덤이나 그렇게 가야 할 듯?.....ㅠㅠㅠ
+      console.log(idxx+"등 / "+this.N/exp_label_num+"등 합니다.");
+      
+      ///tnear : 선택된 점의 knn 점들
+      let vpoint = this.dim === 3 ? [0, 0, 0] : [0, 0];
+      for(let i=0;i<tnear.length;i++){
+     //   console.log("P값은");
+      //  console.log(this.P[distAll[0].index*N+tnear[i].index]);
+     //   console.log("거리는");
+        for(let j=0;j<this.dim;j++){
+          vpoint[j]+=this.Y[tnear[i].index*this.dim+j];
+     //     console.log(Y[tnear[i].index*N+j]);
+        }
+     //   console.log("");
+     //   console.log("");
+      }
+      for(let j=0;j<this.dim;j++)
+        vpoint[j]/=tnear.length;
+      ///target의 nearest들의 무게중심을 vpoint에 넣기. (멀리 떨어진 점들이 이동할 위치를 정해준다.)
+      ///perplexity가 nearest의 K 개수인줄 알았으나.... 아닌거같다. perplexity*3인듯!!!
+      ///가까워야 하는데 멀어진 아이들의 기준은 
+      /// 수식을 보면 pij가 높을수록 강한 힘을 주던데 이해가 안간다...p가 낮아야 가까운거 아닌가..
+      /// 내가 모르는 뭔가가 있을거라고 믿고 일단 pij가 높을수록 좋은걸로 하겠다.
+      /// 이제보니 가까운 KNN만을 가지고 하고(나머지 0) 거리가 가까울수록 pij가 높은가보다.....
+      /// 거리또한 멀 수록 긍정적인데, 멀어야 확 땡길 이유가 되기 때문.
+      ///그래서 한번 해봅시다. pij * this.dist2(pointI,pointJ)
+      //  let pij = this.P[i * N + j];
+      let distAll2=new Array(N);
+      let alp=0;
+      for(let i=0;i<N;i++){
+        distAll2[i]={index:i,plus:0};
+        for(let j=0;j<tnear.length;j++)
+        {
+          let disv=Math.log(this.dist2(points[i],points[tnear[j].index])+1);
+          let pv=this.P[i * N +tnear[j].index];
+          let addval=pv*pv*pv*disv*disv*10;//underflow 방지..?
+          distAll2[i].plus+=addval;//*addval*addval*addval*addval*addval;
+        }
+        alp+=distAll2[i].plus;
+      }
+      distAll2.sort((a:{index:number;plus:number},b:{index:number;plus:number})=>{
+        return b.plus-a.plus;//아마 이러면 내림차순이 될 것 같다.
+      });
+      //console.log("Knear 개수 : "+tnear.length);
+      console.log("전체의 plus 평균 : "+alp/N);
+//      console.log("점과 점사이의 plus 평균 : "+alp/N/tnear.length);
+ //점과 점사이가 필요가 없는게, 이미 p가 계산될 때, near.length개수로(사실은 그 개수만큼 확률을 더한 값으로..!) 나뉜 상태니까 많이 더한다고 값이 크지 않다.!!!     
+      for(let i=0;i<1;i++){
+         console.log(i+1+"등 : "+distAll2[i].plus);
+      }
+      //perplexity가 높을수록 전체적인 max놈이 줄어든다.ㅠㅠㅠ
+      //넘 화난다... 대체 이게 뭘까...
+      /*시도 case 1
+        1등 점수 / 2
+       */
+      /*시도 case 2
+        평균과 1% 등의 비율 조절하면서 해보기<-올ㅋ
+       */
+      let alpha=0.5;
+      let alpha2 = 0.025;
+      let alpha3 = 0.02;
+      let threshold = (alp/N) *alpha + (distAll2[Math.floor(this.N/100)].plus) *(1-alpha);
+      for (let i = 0; i < N; ++i) {
+          if(distAll2[i].plus>threshold)
+            for (let d = 0; d < this.dim; ++d) {
+              
+              //this.Y[distAll2[i].index * this.dim + d] = (this.Y[distAll2[i].index * this.dim + d])/8*7+(vpoint[d])/8;
+              //이 코드는 내분점으로 이동시키는 코드인데 생각보다 더러워져서..
+              //this.ystep[distAll2[i].index][d] += (vpoint[d]-this.Y[distAll2[i].index * this.dim + d] )*alpha2;
+              let sgn=(vpoint[d]>this.Y[distAll2[i].index * this.dim + d] )? 1:-1;
+              this.ystep[distAll2[i].index][d] += (Math.sqrt(Math.abs((vpoint[d]-this.Y[distAll2[i].index * this.dim + d] ))+1)-1)*alpha3*sgn;
+          }
+      }
+
+    }
+    ///변형 끝
   }
+  /// 여기서 보면 Y를 바꾸는게 low dimension을 바꾸는 것으로 보인다.
+  /// 그러므로 Y를 바꾸면 low dimension의 위치가 바뀌어 적용 될 것..
 
   // return cost and gradient, given an arrangement
   costGrad(Y: Float64Array): number[][] {
@@ -423,13 +565,19 @@ export class TSNE {
       // Compute the positive forces for the i-th node.
       let Fpos = this.dim === 3 ? [0, 0, 0] : [0, 0];
       let neighbors = this.nearest[i];
+      ///nearest [i] : i 의 KNN이 들어가 있는 배열.
       for (let k = 0; k < neighbors.length; ++k) {
         let j = neighbors[k].index;
         let pij = P[i * N + j];
         let pointJ = points[j];
         let squaredDistItoJ = this.dist2(pointI, pointJ);
         let premult = pij / (1 + squaredDistItoJ);
+        ///j : 현재 계산할 neighbor의 index
+        ///pij : i와j의 highdim 거리(아마도)
+        ///pointJ  : 그 neighbor의 포인트 위치. (local에서 잡음)
+        ///premult : 모르겠는데, t분포를 통해서 뭐 얻어낸 결과같...
         this.computeForce(Fpos, premult, pointI, pointJ);
+        ///Fpos에다 premult*(PointI-PointJ) 한 값을 넣어준다.
       }
       // Compute the negative forces for the i-th node.
       let FnegZ = this.dim === 3 ? [0, 0, 0] : [0, 0];
@@ -444,6 +592,7 @@ export class TSNE {
           Z += dZ;
           dZ *= qijZ;
           this.computeForce(FnegZ, dZ, pointI, node.yCell);
+          ///FnegZ
           return true;
         }
         // Cell is too close to approximate.
@@ -454,19 +603,27 @@ export class TSNE {
         this.computeForce(FnegZ, qijZ, pointI, node.point);
         return false;
       }, true);
+      ///Fpos는 인력인 것 같고, FnegZ는 척력인 것 같다... 확실하지 않음
+      ///여튼 pij는 high dim의 것이고 (P[i*N+j]) 아마...
+      ///points[i][j] (여기선 그런데 밖에선 Y[i*dim+j])가 i의 jdimension의 값인 듯 하다.
       forces[i] = [Fpos, FnegZ];
     }
     // Normalize the negative forces and compute the gradient.
     const A = 4 * alpha;
     const B = 4 / Z;
+    let plusg=0;
     for (let i = 0; i < N; ++i) {
       let [FPos, FNegZ] = forces[i];
       let gsum = new Array(this.dim);
       for (let d = 0; d < this.dim; ++d) {
         gsum[d] = A * FPos[d] - B * FNegZ[d];
+        plusg+=Math.abs(gsum[d]);
       }
       grad.push(gsum);
     }
+    if(this.iter%100==0) console.log(this.iter+"번째 g합 : "+plusg);
+    
     return grad;
-  }
+  }///CostGrad 끝.
+
 }
